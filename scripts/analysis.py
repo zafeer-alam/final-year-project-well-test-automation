@@ -117,6 +117,9 @@ class WellTestAnalysis:
         """
         Calculate Bourdet derivative: d(Δp)/d(ln(t))
         Used for type curve matching in well testing
+        
+        Uses central difference method for accurate derivative:
+        derivative[i] = (p[i+1] - p[i-1]) / (ln(t[i+1]) - ln(t[i-1]))
         """
         if self.df is None:
             self.load_data()
@@ -124,25 +127,38 @@ class WellTestAnalysis:
         time = self.df[time_col].values
         pressure = self.df[pressure_col].values
         
-        # Calculate pressure changes
-        dp = np.diff(pressure)
-        dt = np.diff(time)
+        # Calculate Bourdet derivative using central difference method
+        derivative = []
         
-        # Calculate derivative
-        derivative = dp / np.log(time[1:] / time[:-1])
+        for i in range(1, len(time) - 1):
+            dp = pressure[i + 1] - pressure[i - 1]
+            dt_log = np.log(time[i + 1]) - np.log(time[i - 1])
+            
+            if dt_log != 0:
+                derivative.append(dp / dt_log)
+            else:
+                derivative.append(np.nan)
+        
+        # Add NaN at boundaries (cannot compute central difference)
+        derivative = [np.nan] + derivative + [np.nan]
         
         results = pd.DataFrame({
-            'Time (hours)': time[:-1],
-            'Pressure (psi)': pressure[:-1],
+            'Time (hours)': time,
+            'Pressure (psi)': pressure,
             'Bourdet Derivative': derivative
         })
         
-        # Create derivative plot
+        # Create derivative plot (skip NaN values)
+        valid_mask = ~np.isnan(derivative)
+        valid_time = time[valid_mask]
+        valid_derivative = np.array(derivative)[valid_mask]
+        
         plt.figure(figsize=(10, 6))
-        plt.loglog(time[:-1], np.abs(derivative), 'r-o', linewidth=2, markersize=4)
+        plt.loglog(valid_time, np.abs(valid_derivative), 'r-o', linewidth=2, markersize=4)
         plt.xlabel('Time (hours)', fontsize=11)
         plt.ylabel('|Bourdet Derivative| (psi)', fontsize=11)
-        plt.title('Bourdet Derivative - Type Curve Analysis', fontsize=13, fontweight='bold')
+        plt.title('Bourdet Derivative - Type Curve Analysis (Central Difference)', 
+                  fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3, which='both')
         plt.tight_layout()
         plt.savefig(self.output_dir / 'bourdet_derivative.png', dpi=300)
