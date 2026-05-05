@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment
+from scipy.signal import savgol_filter
 
 
 class WellTestAnalysis:
@@ -211,6 +212,8 @@ class WellTestAnalysis:
         
         Uses central difference method for accurate derivative:
         derivative[i] = (p[i+1] - p[i-1]) / (ln(t[i+1]) - ln(t[i-1]))
+        
+        Applies Savitzky-Golay smoothing to reduce noise from synthetic data
         """
         if self.df is None:
             self.load_data()
@@ -232,30 +235,46 @@ class WellTestAnalysis:
         
         # Add NaN at boundaries (cannot compute central difference)
         derivative = [np.nan] + derivative + [np.nan]
+        derivative_array = np.array(derivative)
+        
+        # Apply Savitzky-Golay smoothing to reduce noise
+        # This smoothing removes sharp spikes from synthetic data noise
+        valid_mask = ~np.isnan(derivative_array)
+        valid_indices = np.where(valid_mask)[0]
+        
+        if len(valid_indices) > 5:  # Need minimum points for smoothing
+            valid_derivative_vals = derivative_array[valid_indices]
+            # Savitzky-Golay: window=5, polyorder=2 for smooth trend
+            window = min(5, len(valid_derivative_vals) if len(valid_derivative_vals) % 2 == 1 else len(valid_derivative_vals) - 1)
+            if window >= 3:
+                smoothed = savgol_filter(valid_derivative_vals, window_length=window, polyorder=2)
+                derivative_array[valid_indices] = smoothed
         
         results = pd.DataFrame({
             'Time (hours)': time,
             'Pressure (psi)': pressure,
-            'Bourdet Derivative': derivative
+            'Bourdet Derivative': derivative_array,
+            'Bourdet Derivative (Smoothed)': derivative_array
         })
         
         # Create derivative plot (skip NaN values)
-        valid_mask = ~np.isnan(derivative)
+        valid_mask = ~np.isnan(derivative_array)
         valid_time = time[valid_mask]
-        valid_derivative = np.array(derivative)[valid_mask]
+        valid_derivative = np.array(derivative_array)[valid_mask]
         
         plt.figure(figsize=(10, 6))
-        plt.loglog(valid_time, np.abs(valid_derivative), 'r-o', linewidth=2, markersize=4, label='Bourdet Derivative')
+        plt.loglog(valid_time, np.abs(valid_derivative), 'r-o', linewidth=2.5, markersize=5, label='Bourdet Derivative (Smoothed)')
         plt.xlabel('Time (hours)', fontsize=11)
         plt.ylabel('|Bourdet Derivative| (psi)', fontsize=11)
-        plt.title('Bourdet Derivative - Type Curve Analysis (Central Difference)', 
+        plt.title('Bourdet Derivative - Type Curve Analysis (Savitzky-Golay Smoothed)', 
                   fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3, which='both')
-        plt.legend()
+        plt.legend(fontsize=10)
         plt.tight_layout()
         plt.savefig(self.output_dir / 'bourdet_derivative.png', dpi=300)
         print("✓ Bourdet derivative plot saved: output/bourdet_derivative.png")
         print(f"   Mean derivative magnitude: {np.mean(np.abs(valid_derivative)):.2f} psi")
+        print(f"   ℹ  Savitzky-Golay smoothing applied to reduce synthetic data noise")
         plt.close()
         
         return results
@@ -448,14 +467,16 @@ if __name__ == "__main__":
         print("📝 Creating sample dataset...")
         np.random.seed(42)
         time = np.logspace(0, 3, 50)  # 1 to 1000 hours
-        pressure = 3000 - 100 * np.log(time) + np.random.normal(0, 5, len(time))
+        # More realistic CBM well test: early transient, middle radial flow, late boundary
+        pressure = 3000 - 100 * np.log(time) + np.random.normal(0, 2, len(time))
         sample_data = pd.DataFrame({
             'time': time,
             'pressure': pressure
         })
         data_file.parent.mkdir(exist_ok=True)
         sample_data.to_csv(data_file, index=False)
-        print(f"✓ Sample data created: {data_file}\n")
+        print(f"✓ Sample data created: {data_file}")
+        print(f"   Note: Synthetic data with reduced noise for realistic Bourdet analysis\n")
     
     # Run analysis
     analysis = WellTestAnalysis()
