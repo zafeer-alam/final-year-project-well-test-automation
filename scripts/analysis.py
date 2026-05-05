@@ -20,6 +20,7 @@ class WellTestAnalysis:
         self.df = None
         self.output_dir = Path('output')
         self.output_dir.mkdir(exist_ok=True)
+        self.horner_slope = None  # Will be calculated during analysis
         
     def load_data(self):
         """Load well test data from CSV"""
@@ -35,7 +36,12 @@ class WellTestAnalysis:
                     shut_in_time=None):
         """
         Calculate Horner plot data (buildup test analysis)
-        Formula: (p* - p) / qB vs (t + Δt) / Δt on semi-log scale
+        Formula: p vs (tp + Δt) / Δt on semi-log scale
+        
+        Where:
+        - Δt = time since shut-in (NOT absolute time)
+        - tp = production time before shut-in
+        - Horner time function = (tp + Δt) / Δt
         """
         if self.df is None:
             self.load_data()
@@ -43,28 +49,45 @@ class WellTestAnalysis:
         if shut_in_time is None:
             shut_in_time = self.df[time_col].max()
         
-        # Calculate Horner time function
-        dt = self.df[time_col].values
+        # CORRECTION: Calculate Δt properly (time since shut-in, not raw time)
+        time_raw = self.df[time_col].values
+        delta_t = time_raw - time_raw[0] + 1e-6  # Δt from first measurement
         pressure = self.df[pressure_col].values
         
-        horner_time = (shut_in_time + dt) / dt
+        # Horner time function: (tp + Δt) / Δt
+        horner_time = (shut_in_time + delta_t) / delta_t
+        
+        # Calculate Horner slope from linear fit (automatic extraction)
+        log_horner_time = np.log10(horner_time)
+        coeffs = np.polyfit(log_horner_time, pressure, 1)
+        horner_slope = coeffs[0]  # Slope in psi/log cycle
         
         results = pd.DataFrame({
-            'Shutdown Time (hours)': dt,
+            'Shutdown Time (hours)': delta_t,
             'Pressure (psi)': pressure,
             'Horner Time Function': horner_time
         })
         
-        # Create Horner plot
+        # Store slope for later permeability calculations
+        self.horner_slope = horner_slope
+        
+        # Create Horner plot with fitted line
         plt.figure(figsize=(10, 6))
-        plt.semilogx(horner_time, pressure, 'b-o', linewidth=2, markersize=4)
+        plt.semilogx(horner_time, pressure, 'b-o', linewidth=2, markersize=4, label='Data')
+        
+        # Plot fitted straight line
+        fit_pressure = np.polyval(coeffs, log_horner_time)
+        plt.semilogx(horner_time, fit_pressure, 'r--', linewidth=2, label=f'Slope = {horner_slope:.2f} psi/cycle')
+        
         plt.xlabel('(t + Δt) / Δt (Horner Time Function)', fontsize=11)
         plt.ylabel('Pressure (psi)', fontsize=11)
         plt.title('Horner Plot - Buildup Test Analysis', fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3)
+        plt.legend()
         plt.tight_layout()
         plt.savefig(self.output_dir / 'horner_plot.png', dpi=300)
-        print("✓ Horner plot saved: output/horner_plot.png")
+        print(f"✓ Horner plot saved: output/horner_plot.png")
+        print(f"   Horner Slope: {horner_slope:.2f} psi/log cycle")
         plt.close()
         
         return results
@@ -222,15 +245,17 @@ class WellTestAnalysis:
         valid_derivative = np.array(derivative)[valid_mask]
         
         plt.figure(figsize=(10, 6))
-        plt.loglog(valid_time, np.abs(valid_derivative), 'r-o', linewidth=2, markersize=4)
+        plt.loglog(valid_time, np.abs(valid_derivative), 'r-o', linewidth=2, markersize=4, label='Bourdet Derivative')
         plt.xlabel('Time (hours)', fontsize=11)
         plt.ylabel('|Bourdet Derivative| (psi)', fontsize=11)
         plt.title('Bourdet Derivative - Type Curve Analysis (Central Difference)', 
                   fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3, which='both')
+        plt.legend()
         plt.tight_layout()
         plt.savefig(self.output_dir / 'bourdet_derivative.png', dpi=300)
         print("✓ Bourdet derivative plot saved: output/bourdet_derivative.png")
+        print(f"   Mean derivative magnitude: {np.mean(np.abs(valid_derivative)):.2f} psi")
         plt.close()
         
         return results
@@ -267,24 +292,50 @@ class WellTestAnalysis:
         """
         Generate IPR (Inflow Performance Relationship) curve
         Used for deliverability assessment
+        
+        IPR Formula (Darcy): q = C(Pr² - Pwf²) + D(Pr - Pwf)
+        Where:
+        - Pr = reservoir pressure (psi)
+        - Pwf = flowing wellhead pressure (psi)
+        - C, D = coefficients from quadratic/linear fit
         """
+        if len(rates) < 2:
+            print("⚠ Insufficient data for IPR curve (need ≥2 points)")
+            return None
+        
         if prod_pressure is None:
             prod_pressure = pressures[0]
         
         # Fit quadratic equation: q = C0(Pr² - Pwf²) + C1(Pr - Pwf)
-        pwf_range = np.linspace(0, prod_pressure, 100)
+        # Rearrange pressure terms for fitting
+        pressure_squared = prod_pressure**2 - np.array(pressures)**2
+        pressure_linear = prod_pressure - np.array(pressures)
         
+        # Multiple regression fit
+        A = np.vstack([pressure_squared, pressure_linear, np.ones(len(rates))]).T
+        coeffs = np.linalg.lstsq(A, rates, rcond=None)[0]
+        
+        # Generate IPR curve
+        pwf_range = np.linspace(0, prod_pressure, 100)
+        q_range = coeffs[0] * (prod_pressure**2 - pwf_range**2) + coeffs[1] * (prod_pressure - pwf_range)
+        
+        # Plot actual data and fitted curve
         plt.figure(figsize=(10, 6))
-        plt.plot(rates, pressures, 'ko-', linewidth=2, markersize=6, label='Test Data')
-        plt.xlabel('Production Rate (BOPD)', fontsize=11)
-        plt.ylabel('Wellhead Pressure (psi)', fontsize=11)
-        plt.title('Deliverability (IPR) Curve', fontsize=13, fontweight='bold')
+        plt.plot(rates, pressures, 'ko-', linewidth=2, markersize=8, label='Test Data', zorder=3)
+        plt.plot(q_range, pwf_range, 'r-', linewidth=2.5, label='IPR Fit', zorder=2)
+        
+        plt.xlabel('Production Rate (STBPD)', fontsize=11)
+        plt.ylabel('Flowing Pressure (psi)', fontsize=11)
+        plt.title('Deliverability (IPR) Curve - Quadratic Fit', fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
         plt.savefig(self.output_dir / 'ipr_curve.png', dpi=300)
-        print("✓ IPR curve saved: output/ipr_curve.png")
+        print(f"✓ IPR curve saved: output/ipr_curve.png")
+        print(f"   IPR Coefficients: C={coeffs[0]:.6f}, D={coeffs[1]:.6f}")
         plt.close()
+        
+        return coeffs
     
     def export_to_excel(self, horner_results, derivative_results, loglog_results):
         """
@@ -364,6 +415,8 @@ class WellTestAnalysis:
         # Run analyses
         horner_results = self.horner_plot()
         print(f"   Horner plot data: {len(horner_results)} points")
+        if self.horner_slope is not None:
+            print(f"   ✓ Extracted Horner slope: {self.horner_slope:.2f} psi/log cycle")
         
         deriv_results = self.bourdet_derivative()
         print(f"   Bourdet derivative: {len(deriv_results)} points")
