@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
-*.png
-*.xlsx
 .env
+.vscode/
+*.log
+.DS_Store
+# Allow sample outputs to be committed to GitHub
+!output/
