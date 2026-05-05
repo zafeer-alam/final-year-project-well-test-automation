@@ -139,7 +139,7 @@ Where all terms have standard oil field units."""
     
     # Add Horner plot image
     add_image_with_caption(doc, 
-                          'output/horner_plot.png',
+                          'scripts/output/horner_plot.png',
                           'Figure 1.1: Horner Plot with Fitted Straight Line and Extracted Slope')
     
     # Section 2: Permeability Calculation
@@ -189,7 +189,7 @@ Central difference is preferred because:
     
     # Add derivative plot
     add_image_with_caption(doc,
-                          'output/bourdet_derivative.png',
+                          'scripts/output/bourdet_derivative.png',
                           'Figure 3.1: Bourdet Derivative (Central Difference Method)')
     
     # Section 4: Flow Regime Identification
@@ -213,7 +213,7 @@ Each regime has distinct physical meaning:
     
     # Add Log-Log plot
     add_image_with_caption(doc,
-                          'output/loglog_analysis.png',
+                          'scripts/output/loglog_analysis.png',
                           'Figure 4.1: Log-Log Pressure Analysis for Flow Regime Identification')
     
     add_page_break(doc)
@@ -417,10 +417,11 @@ def main():
     create_technical_details_section(doc)
     
     # Save document
-    output_path = 'report/CBM_Well_Test_Analysis_Report.docx'
-    os.makedirs('report', exist_ok=True)
+    report_dir = Path(__file__).parent / 'report'
+    report_dir.mkdir(exist_ok=True)
+    output_path = report_dir / 'CBM_Well_Test_Analysis_Report.docx'
     
-    doc.save(output_path)
+    doc.save(str(output_path))
     print(f"✓ Report created: {output_path}")
     print(f"✓ File includes:")
     print(f"   - Professional title page")
