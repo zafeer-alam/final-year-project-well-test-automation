@@ -8,8 +8,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 
 
 class WellTestAnalysis:
@@ -218,40 +217,66 @@ class WellTestAnalysis:
         print("✓ IPR curve saved: output/ipr_curve.png")
         plt.close()
     
-    def export_to_excel(self, horner_results=None, derivative_results=None):
-        """Export analysis results to Excel workbook"""
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Analysis Results"
+    def export_to_excel(self, horner_results, derivative_results, loglog_results):
+        """
+        Export all analysis results to Excel workbook with multiple sheets
         
-        # Header style
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF")
-        
-        # Add title
-        ws['A1'] = "CBM Well Test Analysis Report"
-        ws['A1'].font = Font(size=14, bold=True)
-        ws.merge_cells('A1:D1')
-        
-        # Add Horner results if available
-        if horner_results is not None:
-            ws['A3'] = "Horner Plot Data"
-            ws['A3'].font = Font(size=11, bold=True)
-            
-            for col_num, header in enumerate(horner_results.columns, 1):
-                cell = ws.cell(row=4, column=col_num)
-                cell.value = header
-                cell.fill = header_fill
-                cell.font = header_font
-            
-            for row_num, row_data in enumerate(horner_results.values, 5):
-                for col_num, value in enumerate(row_data, 1):
-                    ws.cell(row=row_num, column=col_num).value = value
-        
-        # Save workbook
+        Parameters:
+        -----------
+        horner_results : DataFrame
+            Results from Horner plot analysis
+        derivative_results : DataFrame
+            Results from Bourdet derivative calculation
+        loglog_results : DataFrame
+            Results from log-log analysis
+        """
         excel_path = self.output_dir / 'analysis_results.xlsx'
-        wb.save(excel_path)
+        
+        # Create Excel file with multiple sheets
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            # Horner plot data
+            horner_results.to_excel(writer, sheet_name='Horner', index=False)
+            
+            # Bourdet derivative data
+            derivative_results.to_excel(writer, sheet_name='Derivative', index=False)
+            
+            # Log-Log analysis data
+            loglog_results.to_excel(writer, sheet_name='LogLog', index=False)
+            
+            # Get the workbook and format sheets
+            workbook = writer.book
+            
+            # Format header rows
+            from openpyxl.styles import Font, PatternFill, Alignment
+            
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            
+            for sheet_name in ['Horner', 'Derivative', 'LogLog']:
+                worksheet = writer.sheets[sheet_name]
+                
+                # Format header row
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Auto-adjust column widths
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+        
         print(f"✓ Excel report saved: {excel_path}")
+        print(f"   Sheets: Horner | Derivative | LogLog")
+        return excel_path
     
     def run_complete_analysis(self):
         """Run all analysis steps"""
@@ -277,8 +302,8 @@ class WellTestAnalysis:
         loglog_results = self.log_log_analysis()
         print(f"   Log-Log analysis: {len(loglog_results)} points")
         
-        # Export to Excel
-        self.export_to_excel(horner_results, deriv_results)
+        # Export all results to Excel
+        self.export_to_excel(horner_results, deriv_results, loglog_results)
         
         print("\n" + "="*50)
         print("✓ Analysis complete!")
