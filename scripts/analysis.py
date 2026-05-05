@@ -70,6 +70,49 @@ class WellTestAnalysis:
         
         return results
     
+    def calculate_permeability(self, slope, q, mu, B, h):
+        """
+        Calculate permeability from Horner slope
+        
+        Parameters:
+        -----------
+        slope : float
+            Slope from Horner plot (psi/log cycle)
+        q : float
+            Production rate (STBPD)
+        mu : float
+            Fluid viscosity (cp)
+        B : float
+            Formation volume factor (RB/STB)
+        h : float
+            Net pay thickness (feet)
+        
+        Returns:
+        --------
+        k : float
+            Permeability (millidarcies)
+        
+        Formula:
+        --------
+        k = (162.6 * q * mu * B) / (m * h)
+        where m = slope (psi/log cycle)
+        """
+        if slope == 0:
+            print("✗ Error: Slope cannot be zero")
+            return None
+        
+        k = (162.6 * q * mu * B) / (slope * h)
+        
+        print(f"\n📊 Permeability Calculation:")
+        print(f"   Slope (m): {slope:.2f} psi/cycle")
+        print(f"   Rate (q): {q:.2f} STBPD")
+        print(f"   Viscosity (μ): {mu:.3f} cp")
+        print(f"   Volume Factor (B): {B:.3f} RB/STB")
+        print(f"   Pay Thickness (h): {h:.2f} ft")
+        print(f"   ✓ Estimated Permeability: {k:.2f} md\n")
+        
+        return k
+    
     def bourdet_derivative(self, time_col='time', pressure_col='pressure'):
         """
         Calculate Bourdet derivative: d(Δp)/d(ln(t))
@@ -246,3 +289,24 @@ if __name__ == "__main__":
     # Run analysis
     analysis = WellTestAnalysis()
     analysis.run_complete_analysis()
+    
+    # Example: Calculate permeability
+    # Uncomment and modify with your actual Horner plot slope and parameters
+    print("\n" + "="*50)
+    print("Permeability Calculation Example")
+    print("="*50)
+    
+    # Example parameters - replace with your actual values from Horner plot
+    horner_slope = 150.0      # psi/log cycle (from Horner plot)
+    production_rate = 500.0   # STBPD
+    fluid_viscosity = 0.8     # cp
+    volume_factor = 1.2       # RB/STB
+    pay_thickness = 25.0      # feet
+    
+    k = analysis.calculate_permeability(
+        slope=horner_slope,
+        q=production_rate,
+        mu=fluid_viscosity,
+        B=volume_factor,
+        h=pay_thickness
+    )
