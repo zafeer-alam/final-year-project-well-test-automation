@@ -140,12 +140,20 @@ class WellTestAnalysis:
         derivative_array = np.array(derivative)
         valid_deriv = derivative_array[~np.isnan(derivative_array)]
         
-        if len(valid_deriv) < 20:
-            return "Insufficient data", {"status": "Cannot determine - not enough data points"}
+        if len(valid_deriv) < 10:
+            return "Insufficient data points", {
+                "regime": "Insufficient data points",
+                "early_derivative": 0,
+                "mid_derivative": 0,
+                "late_derivative": 0,
+                "slope_change": 0,
+                "reason": f"Only {len(valid_deriv)} valid points (need ≥10)"
+            }
         
         # Compare early time vs late time derivative behavior
-        early_deriv = np.nanmean(valid_deriv[:10])
-        late_deriv = np.nanmean(valid_deriv[-10:])
+        n_early = max(3, len(valid_deriv) // 10)
+        early_deriv = np.nanmean(valid_deriv[:n_early])
+        late_deriv = np.nanmean(valid_deriv[-n_early:])
         mid_deriv = np.nanmean(valid_deriv[len(valid_deriv)//2:])
         
         # Calculate slope to detect boundary effects
