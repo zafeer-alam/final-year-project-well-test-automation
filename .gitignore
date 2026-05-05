@@ -4,5 +4,6 @@ __pycache__/
 .vscode/
 *.log
 .DS_Store
-# Allow sample outputs to be committed to GitHub
+# Allow report files to be committed
+!report/
 !output/
