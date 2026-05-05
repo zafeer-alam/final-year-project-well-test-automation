@@ -112,6 +112,67 @@ class WellTestAnalysis:
         
         return k
     
+    def identify_flow_regime(self, derivative):
+        """
+        Identify well flow regime based on Bourdet derivative behavior
+        
+        Parameters:
+        -----------
+        derivative : array-like
+            Bourdet derivative values
+        
+        Returns:
+        --------
+        regime : str
+            Identified flow regime
+        analysis : dict
+            Details of the analysis
+        
+        Flow Regime Logic:
+        ------------------
+        - Early Fracture Flow: Derivative decreasing over time (transient response)
+          → Early values > Late values
+        - Radial Flow: Derivative stabilizing/increasing (pseudo-steady state)
+          → Early values < Late values
+        - Boundary-Dominated: Derivative rising steeply at end
+          → Strong increase at late times
+        """
+        derivative_array = np.array(derivative)
+        valid_deriv = derivative_array[~np.isnan(derivative_array)]
+        
+        if len(valid_deriv) < 20:
+            return "Insufficient data", {"status": "Cannot determine - not enough data points"}
+        
+        # Compare early time vs late time derivative behavior
+        early_deriv = np.nanmean(valid_deriv[:10])
+        late_deriv = np.nanmean(valid_deriv[-10:])
+        mid_deriv = np.nanmean(valid_deriv[len(valid_deriv)//2:])
+        
+        # Calculate slope to detect boundary effects
+        slope = (late_deriv - early_deriv) / early_deriv if early_deriv != 0 else 0
+        
+        # Determine flow regime
+        if early_deriv > late_deriv:
+            regime = "Early Fracture Flow (Transient)"
+            reason = f"Early derivative ({early_deriv:.2f}) > Late derivative ({late_deriv:.2f})"
+        elif slope > 0.3:
+            regime = "Boundary-Dominated Flow"
+            reason = f"Strong derivative increase ({slope:.1%})"
+        else:
+            regime = "Radial Flow (Pseudo-Steady State)"
+            reason = f"Stable/increasing late-time derivative ({late_deriv:.2f})"
+        
+        analysis = {
+            "regime": regime,
+            "early_derivative": early_deriv,
+            "mid_derivative": mid_deriv,
+            "late_derivative": late_deriv,
+            "slope_change": slope,
+            "reason": reason
+        }
+        
+        return regime, analysis
+    
     def bourdet_derivative(self, time_col='time', pressure_col='pressure'):
         """
         Calculate Bourdet derivative: d(Δp)/d(ln(t))
@@ -301,6 +362,14 @@ class WellTestAnalysis:
         
         loglog_results = self.log_log_analysis()
         print(f"   Log-Log analysis: {len(loglog_results)} points")
+        
+        # Identify flow regime from derivative
+        regime, regime_analysis = self.identify_flow_regime(deriv_results['Bourdet Derivative'].values)
+        print(f"\n   🔍 Flow Regime Analysis:")
+        print(f"      Regime: {regime}")
+        print(f"      Early derivative: {regime_analysis['early_derivative']:.2f}")
+        print(f"      Late derivative: {regime_analysis['late_derivative']:.2f}")
+        print(f"      Reason: {regime_analysis['reason']}")
         
         # Export all results to Excel
         self.export_to_excel(horner_results, deriv_results, loglog_results)
